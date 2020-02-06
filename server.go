@@ -1,13 +1,15 @@
 package main
 
 import (
+	"net/http"
+	"bufio"
 	"fmt"
 	"io"
 	"log"
 	"net"
 )
 
-func Serve() error {
+func Serve(p *Proxy) error {
 	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:9090"))
 	if err != nil {
 		return err
@@ -17,15 +19,36 @@ func Serve() error {
 		if err != nil {
 			return err
 		}
-		go Handle(conn)
+		go Handle(conn, p)
 	}
 }
 
-func Handle(conn net.Conn) {
-	data := make([]byte, 4096)
-	ok_data := make([]byte, 19)
+type bufferedConn struct {
+    r        *bufio.Reader
+    net.Conn // So that most methods are embedded
+}
 
-	length, err := conn.Read(data)
+func newBufferedConn(c net.Conn) bufferedConn {
+    return bufferedConn{bufio.NewReader(c), c}
+}
+
+func newBufferedConnSize(c net.Conn, n int) bufferedConn {
+    return bufferedConn{bufio.NewReaderSize(c, n), c}
+}
+
+func (b bufferedConn) Peek(n int) ([]byte, error) {
+    return b.r.Peek(n)
+}
+
+func (b bufferedConn) Read(p []byte) (int, error) {
+    return b.r.Read(p)
+}
+
+func Handle(conn net.Conn, p *Proxy) {
+	data := make([]byte, 4096)
+
+	new_conn := newBufferedConn(conn)
+	data, err := new_conn.Peek(4096)
 	if err != nil {
 		log.Printf("Error: %s", err)
 	}
@@ -34,24 +57,7 @@ func Handle(conn net.Conn) {
 	if hostname_err == nil {
 		log.Printf("Parsed hostname: %s\n", hostname)
 	}
-
-	clientConn, err := net.Dial("tcp", "localhost:8080")
-	clientConn.Write([]byte(fmt.Sprintf("CONNECT %s:443 HTTP/1.1\r\n\r\n", hostname)))
-	ok_length, err := clientConn.Read(ok_data)
-  fmt.Printf("%v %v %s", ok_length, err, string(ok_data));
-	if err != nil {
-		log.Printf("Error: %s", err)
-		conn.Close()
-		return
-	}
-	n, err := clientConn.Write(data[:length])
-	log.Printf("Wrote %d bytes\n", n)
-	if err != nil {
-		log.Printf("Error: %s", err)
-		conn.Close()
-		clientConn.Close()
-	}
-	Copycat(clientConn, conn)
+	http.Serve(&oneShotListener{new_conn},p)
 }
 
 func Copycat(client, server net.Conn) {

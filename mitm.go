@@ -15,10 +15,6 @@ import (
 // for incoming TLS connections in place of the upstream server's
 // certificate.
 type Proxy struct {
-	// Wrap specifies a function for optionally wrapping upstream for
-	// inspecting the decrypted HTTP request and response.
-	Wrap func(upstream http.Handler) http.Handler
-
 	// CA specifies the root CA for generating leaf certs for each incoming
 	// TLS request.
 	CA *tls.Certificate
@@ -47,7 +43,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Director:      httpDirector,
 		FlushInterval: p.FlushInterval,
 	}
-	p.Wrap(rp).ServeHTTP(w, r)
+	rp.ServeHTTP(w, r)
 }
 
 func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +106,7 @@ func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 
 	ch := make(chan int)
 	wc := &onCloseConn{cconn, func() { ch <- 0 }}
-	http.Serve(&oneShotListener{wc}, p.Wrap(rp))
+	http.Serve(&oneShotListener{wc}, rp)
 	<-ch
 }
 
