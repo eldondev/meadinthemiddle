@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"io/ioutil"
-	"log"
 	"os"
 	"path"
 )
@@ -16,21 +15,6 @@ var (
 	keyFile  = path.Join(dir, "ca-key.pem")
 	certFile = path.Join(dir, "ca-cert.pem")
 )
-
-func main2() {
-	ca, err := loadCA()
-	if err != nil {
-		log.Fatal(err)
-	}
-	p := &Proxy{
-		CA: &ca,
-		TLSServerConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			//CipherSuites: []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA},
-		},
-	}
-	log.Fatal(Serve(p))
-}
 
 func loadCA() (cert tls.Certificate, err error) {
 	// TODO(kr): check file permissions
