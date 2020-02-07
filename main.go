@@ -3,8 +3,9 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
-  "os"
+	"os"
 )
 
 func main() {
@@ -27,15 +28,32 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
-		data := make([]byte, 4096)
-		tlsConn := tls.Server(conn, sConfig)
-		length, err := tlsConn.Read(data)
-		fmt.Println("%d read", length)
-		fmt.Println(tlsConn.ConnectionState().ServerName)
-		tlsConn.Close()
+		go serve(conn, sConfig)
 	}
 	if err != nil {
 		fmt.Println(err)
 	}
 
+}
+
+func serve(conn net.Conn, sConfig *tls.Config) {
+	data := make([]byte, 4096)
+	tlsConn := tls.Server(conn, sConfig)
+	defer tlsConn.Close()
+	length, err := tlsConn.Read(data)
+	fmt.Println("%d read", length)
+	fmt.Println(tlsConn.ConnectionState().ServerName)
+	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", tlsConn.ConnectionState().ServerName), &tls.Config{KeyLogWriter:os.Stdout})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer outConn.Close()
+	length, err = outConn.Write(data[:length])
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	go io.Copy(outConn, tlsConn)
+	io.Copy(tlsConn, outConn)
 }
