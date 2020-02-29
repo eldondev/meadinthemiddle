@@ -20,18 +20,18 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
 	"os"
-	"strings"
-	"time"
 	"regexp"
+	"strings"
 	"sync/atomic"
-	"crypto/tls"
-	"io"
+	"time"
 
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/adapters/gonet"
@@ -43,7 +43,9 @@ import (
 	"github.com/google/netstack/tcpip/network/ipv6"
 	"github.com/google/netstack/tcpip/stack"
 	"github.com/google/netstack/tcpip/transport/tcp"
+	"github.com/google/netstack/tcpip/transport/udp"
 )
+
 var stream_counter uint64
 
 var tap = flag.Bool("tap", false, "use tap istead of tun")
@@ -101,7 +103,7 @@ func main() {
 	// NIC and address.
 	s := stack.New(stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocol{ipv4.NewProtocol(), ipv6.NewProtocol(), arp.NewProtocol()},
-		TransportProtocols: []stack.TransportProtocol{tcp.NewProtocol()},
+		TransportProtocols: []stack.TransportProtocol{tcp.NewProtocol(), udp.NewProtocol()},
 	})
 
 	mtu, err := rawfile.GetMTU(tunName)
@@ -144,8 +146,31 @@ func main() {
 	if err := s.AddAddressRange(1, proto, subnet); err != nil {
 		log.Fatal(err)
 	}
+	s.SetRouteTable([]tcpip.Route{
+		{
+			Destination: subnet,
+			NIC:         1,
+		},
+	})
 
-	listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 8080}, ipv4.ProtocolNumber)
+
+	listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "\x0A\x00\x00\x09", 443}, ipv4.ProtocolNumber)
+	udplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, "\x08\x08\x08\x08", 53}, nil, ipv4.ProtocolNumber)
+	go func() error {
+		udpdata := make([]byte, 4096)
+
+		for {
+			readlen, udpaddr, udperr := udplistener.ReadFrom(udpdata)
+			if udperr != nil {
+				return udperr
+			}
+			if readlen > 0 {
+				log.Printf("Packet: %+v", udpdata[:readlen])
+				log.Printf("Address: %+v", udpaddr)
+				serveDNS(readlen, &udpaddr, udpdata, udplistener)
+			}
+		}
+	}()
 	if err != nil {
 		log.Fatal("new Listener failed: ", err)
 	}
@@ -161,12 +186,13 @@ func main() {
 
 func serve(conn net.Conn, sConfig *tls.Config) {
 	data := make([]byte, 4096)
+	log.Printf("%+v", conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort)
 	tlsConn := tls.Server(conn, sConfig)
 	defer tlsConn.Close()
 	length, err := tlsConn.Read(data)
 	fmt.Println("%d read", length)
 	fmt.Println(tlsConn.ConnectionState().ServerName)
-	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", tlsConn.ConnectionState().ServerName), &tls.Config{KeyLogWriter: os.Stdout})
+	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", tlsConn.ConnectionState().ServerName, conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort), &tls.Config{KeyLogWriter: os.Stdout})
 	if err != nil {
 		fmt.Println(err)
 		return
