@@ -44,5 +44,3 @@ func genCA() (cert tls.Certificate, err error) {
 	}
 	return cert, err
 }
-
-

@@ -153,8 +153,9 @@ func main() {
 		},
 	})
 
-
-	listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "\x0A\x00\x00\x09", 443}, ipv4.ProtocolNumber)
+	listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 443}, ipv4.ProtocolNumber)
+	http_listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 80}, ipv4.ProtocolNumber)
+	go serve_http()
 	udplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, "\x08\x08\x08\x08", 53}, nil, ipv4.ProtocolNumber)
 	go func() error {
 		udpdata := make([]byte, 4096)
@@ -177,9 +178,32 @@ func main() {
 	for {
 		list_conn, list_err := listener.Accept()
 		if list_err != nil {
-			log.Printf("%+v", err)
+			log.Printf("%+v", list_err)
 		} else {
 			go serve(list_conn, sConfig)
+		}
+	}
+}
+func serve_http() {
+	for {
+		http_conn, http_err := http_listener.Accept()
+		if http_err != nil {
+			log.Printf("%+v", http_err)
+		} else {
+			log.Printf("Connecting over http", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+			http_out_conn, http_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+			log.Printf("Connection made")
+			if http_out_conn_err != nil {
+				log.Printf("%+v", http_out_conn_err)
+			} else {
+				go func() {
+					defer http_conn.Close()
+					defer http_out_conn.Close()
+					go io.Copy(http_conn, http_out_conn)
+					io.Copy(http_out_conn, http_conn)
+				}()
+			}
+
 		}
 	}
 }

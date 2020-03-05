@@ -1,12 +1,13 @@
 package main
 
+import "strings"
 import "net"
 import "io"
 import "log"
 import "bufio"
 import "bytes"
 import "encoding/binary"
-import	"github.com/google/netstack/tcpip/adapters/gonet"
+import "github.com/google/netstack/tcpip/adapters/gonet"
 
 type RRecord struct {
 	RecordBuffer []byte
@@ -48,7 +49,7 @@ type Config struct {
 	Hosts map[string][]net.IP
 }
 
-var config Config
+var config = Config{Hosts: make(map[string][]net.IP)}
 
 func init() {
 	//var err error
@@ -104,8 +105,20 @@ func (response *Response) valid() bool {
 }
 
 func (response *Response) populate() {
-	answers := []net.IP{net.IPv4(10,0,0,9)} // Look up our name
-	if response.valid() {                                              // A standard query for which we have answers
+	answers, ok := config.Hosts[response.Records[0].Name[0]]
+	if !ok {
+		answers = make([]net.IP, 0)
+		var lookups []string
+		lookups, _ = net.LookupHost("unixcal.com")
+		for _, addr := range lookups {
+			if strings.Contains(addr, ":") {
+				continue
+			}
+			answers = append(answers, net.ParseIP(addr)) // Look up our name
+			config.Hosts[response.Records[0].Name[0]] = answers
+		}
+	}
+	if response.valid() { // A standard query for which we have answers
 		response.Flags[0], response.Flags[1] = 129, 128 // Set "we have answers" flags
 		response.Answers = uint16(len(answers))
 		for _, address := range answers {
@@ -157,4 +170,3 @@ func serveDNS(byte_count int, requester *net.Addr, packet []byte, conn *gonet.Pa
 		log.Println("binary.Read failed:", err)
 	}
 }
-
