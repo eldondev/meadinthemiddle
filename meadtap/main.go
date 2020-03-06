@@ -143,6 +143,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := s.AddAddress(1,proto, "\x0A\x00\x00\x01") ; err != nil {
+		log.Fatal(err)
+	}
+	if err := s.AddAddress(1,proto, "\x08\x08\x08\x08") ; err != nil {
+		log.Fatal(err)
+	}
 	if err := s.AddAddressRange(1, proto, subnet); err != nil {
 		log.Fatal(err)
 	}
@@ -155,7 +161,8 @@ func main() {
 
 	listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 443}, ipv4.ProtocolNumber)
 	http_listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 80}, ipv4.ProtocolNumber)
-	go serve_http()
+	go serve_local(s)
+	go serve_http(http_listener)
 	udplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, "\x08\x08\x08\x08", 53}, nil, ipv4.ProtocolNumber)
 	go func() error {
 		udpdata := make([]byte, 4096)
@@ -184,7 +191,7 @@ func main() {
 		}
 	}
 }
-func serve_http() {
+func serve_http(http_listener *gonet.Listener) {
 	for {
 		http_conn, http_err := http_listener.Accept()
 		if http_err != nil {
@@ -201,6 +208,34 @@ func serve_http() {
 					defer http_out_conn.Close()
 					go io.Copy(http_conn, http_out_conn)
 					io.Copy(http_out_conn, http_conn)
+				}()
+			}
+
+		}
+	}
+}
+
+func serve_local(s *stack.Stack) {
+	listener, err := net.Listen("tcp",":8080")
+	if err != nil {
+		log.Fatalf("%s", err)
+	}
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Printf("%+v", err)
+		} else {
+			log.Printf("Connecting inbound socket")
+			internal_conn, internal_err := gonet.DialTCP(s,tcpip.FullAddress{0, "\x0A\x00\x00\x02", 8080}, ipv4.ProtocolNumber)
+			if internal_err != nil {
+				log.Printf("%+v", internal_err)
+			} else {
+				log.Printf("Inbound Connection made")
+				go func() {
+					defer internal_conn.Close()
+					defer conn.Close()
+					go io.Copy(internal_conn, conn)
+					io.Copy(conn, internal_conn)
 				}()
 			}
 
