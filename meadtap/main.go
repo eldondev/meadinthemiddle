@@ -143,10 +143,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := s.AddAddress(1,proto, "\x0A\x00\x00\x01") ; err != nil {
+	if err := s.AddAddress(1, proto, "\x0A\x00\x00\x01"); err != nil {
 		log.Fatal(err)
 	}
-	if err := s.AddAddress(1,proto, "\x08\x08\x08\x08") ; err != nil {
+	if err := s.AddAddress(1, proto, "\x08\x08\x08\x08"); err != nil {
 		log.Fatal(err)
 	}
 	if err := s.AddAddressRange(1, proto, subnet); err != nil {
@@ -216,7 +216,7 @@ func serve_http(http_listener *gonet.Listener) {
 }
 
 func serve_local(s *stack.Stack) {
-	listener, err := net.Listen("tcp",":8080")
+	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
@@ -226,7 +226,7 @@ func serve_local(s *stack.Stack) {
 			log.Printf("%+v", err)
 		} else {
 			log.Printf("Connecting inbound socket")
-			internal_conn, internal_err := gonet.DialTCP(s,tcpip.FullAddress{0, "\x0A\x00\x00\x02", 8080}, ipv4.ProtocolNumber)
+			internal_conn, internal_err := gonet.DialTCP(s, tcpip.FullAddress{0, "\x0A\x00\x00\x02", 8080}, ipv4.ProtocolNumber)
 			if internal_err != nil {
 				log.Printf("%+v", internal_err)
 			} else {
