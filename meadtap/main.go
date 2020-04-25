@@ -197,7 +197,7 @@ func serve_http(http_listener *gonet.Listener) {
 		if http_err != nil {
 			log.Printf("%+v", http_err)
 		} else {
-			log.Printf("Connecting over http", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+			log.Printf("Connecting over http to %s", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
 			http_out_conn, http_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
 			log.Printf("Connection made")
 			if http_out_conn_err != nil {
@@ -249,7 +249,7 @@ func serve(conn net.Conn, sConfig *tls.Config) {
 	tlsConn := tls.Server(conn, sConfig)
 	defer tlsConn.Close()
 	length, err := tlsConn.Read(data)
-	fmt.Println("%d read", length)
+	fmt.Printf("%d read\n", length)
 	fmt.Println(tlsConn.ConnectionState().ServerName)
 	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", tlsConn.ConnectionState().ServerName, conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort), &tls.Config{KeyLogWriter: os.Stdout})
 	if err != nil {
@@ -268,8 +268,23 @@ func serve(conn net.Conn, sConfig *tls.Config) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	go io.Copy(outConn, io.TeeReader(tlsConn, outFile))
-	io.Copy(tlsConn, io.TeeReader(outConn, inFile))
+	copied := make(chan int64)
+	go func() {
+		bytes_copied, out_copy_err := io.Copy(outConn, io.TeeReader(tlsConn, outFile))
+		if out_copy_err != nil {
+			fmt.Printf("Error copying out: %s", out_copy_err)
+		}
+		fmt.Printf("Finished copying out")
+		outConn.CloseWrite()
+		copied <- bytes_copied
+	}()
+	total_in, in_copy_err := io.Copy(tlsConn, io.TeeReader(outConn, inFile))
+	fmt.Printf("Finished copying in")
+  if in_copy_err != nil {
+			fmt.Printf("Error copying in: %s", in_copy_err)
+	}
+	total_out := (<-copied) + int64(length)
+	fmt.Printf("total_in: %d, total_out: %d", total_in, total_out)
 }
 
 func get_record_files(serverName string) (inFile, outFile *os.File) {
