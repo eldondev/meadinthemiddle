@@ -109,13 +109,16 @@ func (response *Response) populate() {
 	if !ok {
 		answers = make([]net.IP, 0)
 		var lookups []string
-		lookups, _ = net.LookupHost("unixcal.com")
+		full_hostname := strings.Join(response.Records[0].Name,".")
+		log.Println("Resolving %+s", full_hostname)
+		lookups, _ = net.LookupHost(full_hostname)
 		for _, addr := range lookups {
 			if strings.Contains(addr, ":") {
 				continue
 			}
+		  log.Println("Resolved %+s to %+v", response.Records[0].Name[0], addr)
 			answers = append(answers, net.ParseIP(addr)) // Look up our name
-			config.Hosts[response.Records[0].Name[0]] = answers
+			config.Hosts[full_hostname] = answers
 		}
 	}
 	if response.valid() { // A standard query for which we have answers
