@@ -110,13 +110,13 @@ func (response *Response) populate() {
 		answers = make([]net.IP, 0)
 		var lookups []string
 		full_hostname := strings.Join(response.Records[0].Name,".")
-		log.Println("Resolving %+s", full_hostname)
+		log.Printf("Resolving %+s", full_hostname)
 		lookups, _ = net.LookupHost(full_hostname)
 		for _, addr := range lookups {
 			if strings.Contains(addr, ":") {
 				continue
 			}
-		  log.Println("Resolved %+s to %+v", response.Records[0].Name[0], addr)
+		  log.Printf("Resolved %+s to %+v", response.Records[0].Name[0], addr)
 			answers = append(answers, net.ParseIP(addr)) // Look up our name
 			config.Hosts[full_hostname] = answers
 		}
