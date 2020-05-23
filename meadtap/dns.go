@@ -9,6 +9,8 @@ import "bytes"
 import "encoding/binary"
 import "github.com/google/netstack/tcpip/adapters/gonet"
 
+
+
 type RRecord struct {
 	RecordBuffer []byte
 	RRecordFooter
@@ -50,20 +52,6 @@ type Config struct {
 }
 
 var config = Config{Hosts: make(map[string][]net.IP)}
-
-func init() {
-	//var err error
-	//var file *os.File
-	//var config_json []byte
-	//if file, err = os.Open("config.json"); err == nil {
-	//	if config_json, err = ioutil.ReadAll(file); err == nil {
-	//		if err = json.Unmarshal(config_json, &config); err == nil {
-	//			return
-	//		}
-	//	}
-	//}
-	//log.Fatalf("Fatal: %v", err)
-}
 
 func (d *DNSPacketHeader) total_records() int {
 	return int(d.Questions + d.Answers + d.Authorities + d.Additionals)

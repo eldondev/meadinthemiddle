@@ -20,19 +20,11 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"io"
-	"log"
-	"math/rand"
-	"net"
-	"os"
-	"regexp"
-	"strings"
-	"sync/atomic"
-	"time"
-
+	"github.com/dgraph-io/badger"
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/adapters/gonet"
 	"github.com/google/netstack/tcpip/link/fdbased"
@@ -44,12 +36,40 @@ import (
 	"github.com/google/netstack/tcpip/stack"
 	"github.com/google/netstack/tcpip/transport/tcp"
 	"github.com/google/netstack/tcpip/transport/udp"
+	"io"
+	"log"
+	"math/rand"
+	"net"
+	"os"
+	"regexp"
+	"strings"
+	"sync/atomic"
+	"time"
 )
 
 var stream_counter uint64
 
 var tap = flag.Bool("tap", false, "use tap istead of tun")
 var mac = flag.String("mac", "aa:00:01:01:01:01", "mac address to use in tap device")
+
+var db *badger.DB
+
+func init() {
+	var err error
+	if db, err = badger.Open(badger.DefaultOptions("meaddb")); err == nil {
+		return
+	} else {
+		log.Fatalf("Fatal: %v", err)
+	}
+}
+
+func dbUpdate(workfunc func(txn *badger.Txn) error) {
+	if err := db.Update(workfunc); err == nil {
+		return
+	} else {
+		log.Fatalf("Fatal: %v", err)
+	}
+}
 
 func main() {
 	ca, _ := loadCA()
@@ -102,7 +122,7 @@ func main() {
 	// Create the stack with ip and tcp protocols, then add a tun-based
 	// NIC and address.
 	s := stack.New(stack.Options{
-		NetworkProtocols:   []stack.NetworkProtocol{ipv4.NewProtocol(), ipv6.NewProtocol(), arp.NewProtocol()},
+		NetworkProtocols:   []stack.NetworkProtocol{ipv4.NewProtocol(), ipv6.NewProtocol(), NewProtocol("\xC0\xA8\x0E\x97")},
 		TransportProtocols: []stack.TransportProtocol{tcp.NewProtocol(), udp.NewProtocol()},
 	})
 
@@ -143,7 +163,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := s.AddAddress(1, proto, "\x0A\x00\x00\x01"); err != nil {
+	if err := s.AddAddress(1, proto, "\xC0\xA8\x0E\x97"); err != nil {
 		log.Fatal(err)
 	}
 	if err := s.AddAddress(1, proto, "\x08\x08\x08\x08"); err != nil {
@@ -191,26 +211,47 @@ func main() {
 		}
 	}
 }
+
 func serve_http(http_listener *gonet.Listener) {
 	for {
 		http_conn, http_err := http_listener.Accept()
 		if http_err != nil {
 			log.Printf("%+v", http_err)
 		} else {
-			log.Printf("Connecting over http to %s", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
-			http_out_conn, http_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+			go doServeHTTP(http_conn)
+		}
+	}
+}
+
+func doServeHTTP(http_conn net.Conn) {
+	data := make([]byte, 4096)
+	var err error
+	var length int
+	if length, err = http_conn.Read(data); err == nil {
+		err = db.View(func(txn *badger.Txn) error {
+			_, err := txn.Get(bytes.Split(data, []byte("\n"))[0])
+			return err
+		})
+		log.Printf("Read from http %v", length)
+		log.Printf("Connecting over http to %s", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+		http_out_conn, http_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+		if http_out_conn_err != nil {
+			log.Printf("%+v", http_out_conn_err)
+		} else {
 			log.Printf("Connection made")
-			if http_out_conn_err != nil {
-				log.Printf("%+v", http_out_conn_err)
-			} else {
+			if written, initial_write_err := http_out_conn.Write(data[:length]); initial_write_err == nil {
+				log.Printf("Wrote %s to conn", string(data[:written]))
 				go func() {
 					defer http_conn.Close()
 					defer http_out_conn.Close()
 					go io.Copy(http_conn, http_out_conn)
 					io.Copy(http_out_conn, http_conn)
 				}()
+			} else {
+					defer http_conn.Close()
+					defer http_out_conn.Close()
+				log.Printf("%+v", initial_write_err)
 			}
-
 		}
 	}
 }
@@ -280,8 +321,8 @@ func serve(conn net.Conn, sConfig *tls.Config) {
 	}()
 	total_in, in_copy_err := io.Copy(tlsConn, io.TeeReader(outConn, inFile))
 	fmt.Printf("Finished copying in")
-  if in_copy_err != nil {
-			fmt.Printf("Error copying in: %s", in_copy_err)
+	if in_copy_err != nil {
+		fmt.Printf("Error copying in: %s", in_copy_err)
 	}
 	total_out := (<-copied) + int64(length)
 	fmt.Printf("total_in: %d, total_out: %d", total_in, total_out)
