@@ -45,7 +45,7 @@ type endpoint struct {
 	nicID         tcpip.NICID
 	linkEP        stack.LinkEndpoint
 	linkAddrCache stack.LinkAddressCache
-  addr string
+	addr          tcpip.Address
 }
 
 // DefaultTTL is unused for ARP. It implements stack.NetworkEndpoint.
@@ -103,7 +103,7 @@ func (e *endpoint) HandlePacket(r *stack.Route, pkt tcpip.PacketBuffer) {
 	switch h.Op() {
 	case header.ARPRequest:
 		localAddr := tcpip.Address(h.ProtocolAddressTarget())
-		if localAddr != tcpip.Address(e.addr) {
+		if localAddr != e.addr {
 			return
 		}
 		if e.linkAddrCache.CheckLocalAddress(e.nicID, header.IPv4ProtocolNumber, localAddr) == 0 {
@@ -130,7 +130,7 @@ func (e *endpoint) HandlePacket(r *stack.Route, pkt tcpip.PacketBuffer) {
 
 // protocol implements stack.NetworkProtocol and stack.LinkAddressResolver.
 type protocol struct {
-    addr string
+	addr tcpip.Address
 }
 
 func (p *protocol) Number() tcpip.NetworkProtocolNumber { return ProtocolNumber }
@@ -150,7 +150,7 @@ func (p *protocol) NewEndpoint(nicID tcpip.NICID, addrWithPrefix tcpip.AddressWi
 		nicID:         nicID,
 		linkEP:        sender,
 		linkAddrCache: linkAddrCache,
-	  addr: p.addr,
+		addr:          p.addr,
 	}, nil
 }
 
@@ -217,6 +217,6 @@ func (p *protocol) Option(option interface{}) *tcpip.Error {
 var broadcastMAC = tcpip.LinkAddress([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
 
 // NewProtocol returns an ARP network protocol.
-func NewProtocol(addr string) stack.NetworkProtocol {
-	return &protocol{addr:addr}
+func NewProtocol(addr tcpip.Address) stack.NetworkProtocol {
+	return &protocol{addr: addr}
 }

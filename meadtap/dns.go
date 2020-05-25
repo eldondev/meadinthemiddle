@@ -9,8 +9,6 @@ import "bytes"
 import "encoding/binary"
 import "github.com/google/netstack/tcpip/adapters/gonet"
 
-
-
 type RRecord struct {
 	RecordBuffer []byte
 	RRecordFooter
@@ -97,14 +95,14 @@ func (response *Response) populate() {
 	if !ok {
 		answers = make([]net.IP, 0)
 		var lookups []string
-		full_hostname := strings.Join(response.Records[0].Name,".")
+		full_hostname := strings.Join(response.Records[0].Name, ".")
 		log.Printf("Resolving %+s", full_hostname)
 		lookups, _ = net.LookupHost(full_hostname)
 		for _, addr := range lookups {
 			if strings.Contains(addr, ":") {
 				continue
 			}
-		  log.Printf("Resolved %+s to %+v", response.Records[0].Name[0], addr)
+			log.Printf("Resolved %+s to %+v", response.Records[0].Name[0], addr)
 			answers = append(answers, net.ParseIP(addr)) // Look up our name
 			config.Hosts[full_hostname] = answers
 		}

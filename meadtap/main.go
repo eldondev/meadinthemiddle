@@ -51,7 +51,8 @@ var stream_counter uint64
 
 var tap = flag.Bool("tap", false, "use tap istead of tun")
 var mac = flag.String("mac", "aa:00:01:01:01:01", "mac address to use in tap device")
-
+var localip = flag.String("ip", "192.168.14.151", "local address to assign")
+var dns = flag.String("dns", "8.8.8.8", "local address to assign")
 var db *badger.DB
 
 func init() {
@@ -72,12 +73,26 @@ func dbUpdate(workfunc func(txn *badger.Txn) error) {
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	//files, err := ioutil.ReadDir(".")
+	//for _, file := range files {
+	//  if strings.HasSuffic(file, "out") {
+	//		req_bytes, _ := ioutil.ReadFile(file)
+	//		if bytes.Split(
+	//	}
+
+	//}
+
 	ca, _ := loadCA()
+	localaddress := tcpip.Address(string(net.ParseIP(*localip).To4()))
+	dnsaddress := tcpip.Address(string(net.ParseIP(*dns).To4()))
 	sConfig := new(tls.Config)
 	p_s_config := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		//CipherSuites: []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA},
 	}
+	var proto tcpip.NetworkProtocolNumber
+	proto = ipv4.ProtocolNumber
 	*sConfig = *p_s_config
 	sConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 		cConfig := new(tls.Config)
@@ -86,12 +101,11 @@ func main() {
 	}
 	sConfig.KeyLogWriter = os.Stdout
 	flag.Parse()
-	if len(flag.Args()) != 3 {
+	if len(flag.Args()) != 1 {
 		log.Fatal("Usage: ", os.Args[0], " <tun-device> <local-address> <local-port>")
 	}
 
 	tunName := flag.Arg(0)
-	addrName := flag.Arg(1)
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -101,28 +115,10 @@ func main() {
 		log.Fatalf("Bad MAC address: %v", *mac)
 	}
 
-	// Parse the IP address. Support both ipv4 and ipv6.
-	parsedAddr := net.ParseIP(addrName)
-	if parsedAddr == nil {
-		log.Fatalf("Bad IP address: %v", addrName)
-	}
-
-	var addr tcpip.Address
-	var proto tcpip.NetworkProtocolNumber
-	if parsedAddr.To4() != nil {
-		addr = tcpip.Address(parsedAddr.To4())
-		proto = ipv4.ProtocolNumber
-	} else if parsedAddr.To16() != nil {
-		addr = tcpip.Address(parsedAddr.To16())
-		proto = ipv6.ProtocolNumber
-	} else {
-		log.Fatalf("Unknown IP type: %v", addrName)
-	}
-
 	// Create the stack with ip and tcp protocols, then add a tun-based
 	// NIC and address.
 	s := stack.New(stack.Options{
-		NetworkProtocols:   []stack.NetworkProtocol{ipv4.NewProtocol(), ipv6.NewProtocol(), NewProtocol("\xC0\xA8\x0E\x97")},
+		NetworkProtocols:   []stack.NetworkProtocol{ipv4.NewProtocol(), ipv6.NewProtocol(), NewProtocol(localaddress)},
 		TransportProtocols: []stack.TransportProtocol{tcp.NewProtocol(), udp.NewProtocol()},
 	})
 
@@ -157,16 +153,15 @@ func main() {
 	if err := s.AddAddress(1, arp.ProtocolNumber, arp.ProtocolAddress); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("+%v", addr)
 
-	subnet, err := tcpip.NewSubnet(tcpip.Address(strings.Repeat("\x00", len(addr))), tcpip.AddressMask(strings.Repeat("\x00", len(addr))))
+	subnet, err := tcpip.NewSubnet(tcpip.Address(strings.Repeat("\x00", 4)), tcpip.AddressMask(strings.Repeat("\x00", 4)))
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := s.AddAddress(1, proto, "\xC0\xA8\x0E\x97"); err != nil {
+	if err := s.AddAddress(1, proto, localaddress); err != nil {
 		log.Fatal(err)
 	}
-	if err := s.AddAddress(1, proto, "\x08\x08\x08\x08"); err != nil {
+	if err := s.AddAddress(1, proto, dnsaddress); err != nil {
 		log.Fatal(err)
 	}
 	if err := s.AddAddressRange(1, proto, subnet); err != nil {
@@ -183,7 +178,7 @@ func main() {
 	http_listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 80}, ipv4.ProtocolNumber)
 	go serve_local(s)
 	go serve_http(http_listener)
-	udplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, "\x08\x08\x08\x08", 53}, nil, ipv4.ProtocolNumber)
+	udplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, dnsaddress, 53}, nil, ipv4.ProtocolNumber)
 	go func() error {
 		udpdata := make([]byte, 4096)
 
@@ -227,6 +222,7 @@ func doServeHTTP(http_conn net.Conn) {
 	data := make([]byte, 4096)
 	var err error
 	var length int
+	defer http_conn.Close()
 	if length, err = http_conn.Read(data); err == nil {
 		err = db.View(func(txn *badger.Txn) error {
 			_, err := txn.Get(bytes.Split(data, []byte("\n"))[0])
@@ -235,21 +231,15 @@ func doServeHTTP(http_conn net.Conn) {
 		log.Printf("Read from http %v", length)
 		log.Printf("Connecting over http to %s", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
 		http_out_conn, http_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+		defer http_out_conn.Close()
 		if http_out_conn_err != nil {
 			log.Printf("%+v", http_out_conn_err)
 		} else {
 			log.Printf("Connection made")
-			if written, initial_write_err := http_out_conn.Write(data[:length]); initial_write_err == nil {
-				log.Printf("Wrote %s to conn", string(data[:written]))
-				go func() {
-					defer http_conn.Close()
-					defer http_out_conn.Close()
-					go io.Copy(http_conn, http_out_conn)
-					io.Copy(http_out_conn, http_conn)
-				}()
+			if _, initial_write_err := http_out_conn.Write(data[:length]); initial_write_err == nil {
+				go io.Copy(http_conn, http_out_conn)
+				io.Copy(http_out_conn, http_conn)
 			} else {
-					defer http_conn.Close()
-					defer http_out_conn.Close()
 				log.Printf("%+v", initial_write_err)
 			}
 		}
