@@ -22,6 +22,7 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/sha256"
 	"flag"
 	"fmt"
 	"github.com/dgraph-io/badger"
@@ -40,6 +41,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -64,14 +66,60 @@ func init() {
 	}
 }
 
-func dbUpdate(workfunc func(txn *badger.Txn) error) {
-	if err := db.Update(workfunc); err == nil {
-		return
-	} else {
+func dbUpdate(key, value []byte) {
+	err := db.Update(func(txn *badger.Txn) error {
+  e := badger.NewEntry(key,value)
+  err := txn.SetEntry(e)
+  return err
+})
+	if err != nil {
 		log.Fatalf("Fatal: %v", err)
 	}
 }
 
+func dbGet(key []byte) ([]byte, error) {
+	var result []byte
+	err := db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+
+		result, err = item.ValueCopy(nil)
+		return err
+	})
+	return result, err
+}
+
+func getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	cConfig := new(tls.Config)
+	cConfig.ServerName = hello.ServerName
+	var cert tls.Certificate
+	err := db.View(func(txn *badger.Txn) error {
+		var certificate, key []byte
+		certificate, err := dbGet([]byte(fmt.Sprintf("%s:cert", hello.ServerName)))
+		if err != nil {
+			return err
+		}
+		key, err = dbGet([]byte(fmt.Sprintf("%s:key", hello.ServerName)))
+		if certificate != nil && key != nil && err == nil {
+			cert, err = tls.X509KeyPair(certificate, key)
+			if err != nil {
+				return err
+			}
+		}
+		return err
+	})
+	log.Printf("%+v %+v", cert, err)
+	if err == nil {
+		log.Printf("Returning cached cert for %s", hello.ServerName)
+		return &cert, nil
+	}
+
+	return genCert(&ca, []string{hello.ServerName})
+}
+
+var ca tls.Certificate
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	//files, err := ioutil.ReadDir(".")
@@ -83,7 +131,7 @@ func main() {
 
 	//}
 
-	ca, _ := loadCA()
+	ca, _ = loadCA()
 	localaddress := tcpip.Address(string(net.ParseIP(*localip).To4()))
 	dnsaddress := tcpip.Address(string(net.ParseIP(*dns).To4()))
 	sConfig := new(tls.Config)
@@ -94,12 +142,8 @@ func main() {
 	var proto tcpip.NetworkProtocolNumber
 	proto = ipv4.ProtocolNumber
 	*sConfig = *p_s_config
-	sConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		cConfig := new(tls.Config)
-		cConfig.ServerName = hello.ServerName
-		return genCert(&ca, []string{hello.ServerName})
-	}
-	sConfig.KeyLogWriter = os.Stdout
+	sConfig.GetCertificate = getCertificate
+	sConfig.KeyLogWriter = KeyLogWriter{}
 	flag.Parse()
 	if len(flag.Args()) != 1 {
 		log.Fatal("Usage: ", os.Args[0], " <tun-device> <local-address> <local-port>")
@@ -176,8 +220,10 @@ func main() {
 
 	listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 443}, ipv4.ProtocolNumber)
 	http_listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 80}, ipv4.ProtocolNumber)
+
 	go serve_local(s)
 	go serve_http(http_listener)
+	go serveCert()
 	udplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, dnsaddress, 53}, nil, ipv4.ProtocolNumber)
 	go func() error {
 		udpdata := make([]byte, 4096)
@@ -207,6 +253,17 @@ func main() {
 	}
 }
 
+func serveCert() {
+	log.Printf("Serving cert")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/cert", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Handling cert request")
+		fmt.Fprintf(w, string(certPEM))
+	})
+
+	log.Fatal(http.ListenAndServe("127.0.0.1:9090", mux))
+}
+
 func serve_http(http_listener *gonet.Listener) {
 	for {
 		http_conn, http_err := http_listener.Accept()
@@ -230,7 +287,14 @@ func doServeHTTP(http_conn net.Conn) {
 		})
 		log.Printf("Read from http %v", length)
 		log.Printf("Connecting over http to %s", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
-		http_out_conn, http_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+		connectAddress := http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress
+		connectPort := http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort
+		if strings.HasPrefix(connectAddress.String(), "10.") || strings.HasPrefix(connectAddress.String(), "192.168") || regexp.MustCompile("^172[.](1[6-9]|2[0-9]|3[01])[.]").MatchString(connectAddress.String()) {
+			log.Printf("Replacing %s with 127.0.0.1", connectAddress.String())
+			connectAddress = tcpip.Address(net.ParseIP("127.0.0.1").To4())
+			connectPort = 9090
+		}
+		http_out_conn, http_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", connectAddress, connectPort))
 		defer http_out_conn.Close()
 		if http_out_conn_err != nil {
 			log.Printf("%+v", http_out_conn_err)
@@ -247,6 +311,7 @@ func doServeHTTP(http_conn net.Conn) {
 }
 
 func serve_local(s *stack.Stack) {
+	log.Printf("serving local")
 	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		log.Fatalf("%s", err)
@@ -274,6 +339,18 @@ func serve_local(s *stack.Stack) {
 	}
 }
 
+type KeyLogWriter struct {
+	Session []byte
+}
+
+func (k KeyLogWriter) Write(p []byte) (n int, err error) {
+	key := k.Session[:]
+	shasum := sha256.Sum256(p)
+	key = append(key, shasum[:]...)
+	dbUpdate(key, p)
+	return len(p), nil
+}
+
 func serve(conn net.Conn, sConfig *tls.Config) {
 	data := make([]byte, 4096)
 	log.Printf("%+v", conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort)
@@ -282,7 +359,7 @@ func serve(conn net.Conn, sConfig *tls.Config) {
 	length, err := tlsConn.Read(data)
 	fmt.Printf("%d read\n", length)
 	fmt.Println(tlsConn.ConnectionState().ServerName)
-	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", tlsConn.ConnectionState().ServerName, conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort), &tls.Config{KeyLogWriter: os.Stdout})
+	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", tlsConn.ConnectionState().ServerName, conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort), &tls.Config{KeyLogWriter: KeyLogWriter{Session:[]byte(fmt.Sprintf("%d\x00", time.Now().UnixNano()))}})
 	if err != nil {
 		fmt.Println(err)
 		return

@@ -16,6 +16,8 @@ var (
 	certFile = path.Join(dir, "ca-cert.pem")
 )
 
+var certPEM []byte 
+
 func loadCA() (cert tls.Certificate, err error) {
 	// TODO(kr): check file permissions
 	cert, err = tls.LoadX509KeyPair(certFile, keyFile)
@@ -25,6 +27,7 @@ func loadCA() (cert tls.Certificate, err error) {
 	if err == nil {
 		cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
 	}
+	certPEM, _ = ioutil.ReadFile(certFile)
 	return
 }
 
