@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/dgraph-io/badger"
@@ -110,7 +111,6 @@ func getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 		}
 		return err
 	})
-	log.Printf("%+v %+v", cert, err)
 	if err == nil {
 		log.Printf("Returning cached cert for %s", hello.ServerName)
 		return &cert, nil
@@ -133,7 +133,6 @@ func main() {
 	//}
 
 	ca, _ = loadCA()
-	localaddress := tcpip.Address(string(net.ParseIP(*localip).To4()))
 	dnsaddress := tcpip.Address(string(net.ParseIP(*dns).To4()))
 	sConfig := new(tls.Config)
 	p_s_config := &tls.Config{
@@ -146,6 +145,8 @@ func main() {
 	sConfig.GetCertificate = getCertificate
 	sConfig.KeyLogWriter = KeyLogWriter{}
 	flag.Parse()
+	localaddress := tcpip.Address(string(net.ParseIP(*localip).To4()))
+	log.Printf("Local ip is: %+v", localaddress)
 	if len(flag.Args()) != 1 {
 		log.Fatal("Usage: ", os.Args[0], " <tun-device> <local-address> <local-port>")
 	}
@@ -235,8 +236,6 @@ func main() {
 				return udperr
 			}
 			if readlen > 0 {
-				log.Printf("Packet: %+v", udpdata[:readlen])
-				log.Printf("Address: %+v", udpaddr)
 				serveDNS(readlen, &udpaddr, udpdata, udplistener)
 			}
 		}
@@ -260,6 +259,16 @@ func serveCert() {
 	mux.HandleFunc("/cert", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Handling cert request")
 		fmt.Fprintf(w, string(certPEM))
+	})
+
+	mux.HandleFunc("/names", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Handling name request")
+		json, err := json.Marshal(config)
+		if err != nil {
+			fmt.Fprintf(w, err.Error())
+			return
+		}
+		fmt.Fprintf(w, string(json))
 	})
 
 	log.Fatal(http.ListenAndServe("127.0.0.1:9090", mux))
@@ -351,6 +360,9 @@ func (k KeyLogWriter) Write(p []byte) (n int, err error) {
 	dbUpdate(key, p)
 	return len(p), nil
 }
+func getNanoSession() []byte {
+	return []byte(fmt.Sprintf("%d\x00", time.Now().UnixNano()))
+}
 
 func serve(conn net.Conn, sConfig *tls.Config) {
 	data := make([]byte, 4096)
@@ -358,9 +370,8 @@ func serve(conn net.Conn, sConfig *tls.Config) {
 	tlsConn := tls.Server(conn, sConfig)
 	defer tlsConn.Close()
 	length, err := tlsConn.Read(data)
-	fmt.Printf("%d read\n", length)
 	fmt.Println(tlsConn.ConnectionState().ServerName)
-	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", tlsConn.ConnectionState().ServerName, conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort), &tls.Config{KeyLogWriter: KeyLogWriter{Session: []byte(fmt.Sprintf("%d\x00", time.Now().UnixNano()))}})
+	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", tlsConn.ConnectionState().ServerName, conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort), &tls.Config{KeyLogWriter: KeyLogWriter{Session: getNanoSession()}})
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -381,19 +392,17 @@ func serve(conn net.Conn, sConfig *tls.Config) {
 	go func() {
 		bytes_copied, out_copy_err := io.Copy(outConn, io.TeeReader(tlsConn, outFile))
 		if out_copy_err != nil {
-			fmt.Printf("Error copying out: %s", out_copy_err)
+			log.Printf("Error copying out: %s", out_copy_err)
 		}
-		fmt.Printf("Finished copying out")
 		outConn.CloseWrite()
 		copied <- bytes_copied
 	}()
 	total_in, in_copy_err := io.Copy(tlsConn, io.TeeReader(outConn, inFile))
-	fmt.Printf("Finished copying in")
 	if in_copy_err != nil {
-		fmt.Printf("Error copying in: %s", in_copy_err)
+		log.Printf("Error copying in: %s", in_copy_err)
 	}
 	total_out := (<-copied) + int64(length)
-	fmt.Printf("total_in: %d, total_out: %d", total_in, total_out)
+	log.Printf("total_in: %d, total_out: %d", total_in, total_out)
 }
 
 func get_record_files(serverName string) (inFile, outFile *os.File) {

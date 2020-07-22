@@ -1,6 +1,7 @@
 package main
 
 import "strings"
+import "fmt"
 import "net"
 import "io"
 import "log"
@@ -102,7 +103,7 @@ func (response *Response) populate() {
 			if strings.Contains(addr, ":") {
 				continue
 			}
-			log.Printf("Resolved %+s to %+v", response.Records[0].Name[0], addr)
+			KeyLogWriter{Session: getNanoSession()}.Write([]byte(fmt.Sprintf("Resolved %+s to %+v", response.Records[0].Name[0], addr)))
 			answers = append(answers, net.ParseIP(addr)) // Look up our name
 			config.Hosts[full_hostname] = answers
 		}
