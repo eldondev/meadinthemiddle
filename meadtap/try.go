@@ -16,7 +16,7 @@ var (
 	certFile = path.Join(dir, "ca-cert.pem")
 )
 
-var certPEM []byte 
+var certPEM []byte
 
 func loadCA() (cert tls.Certificate, err error) {
 	// TODO(kr): check file permissions

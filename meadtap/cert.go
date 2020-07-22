@@ -53,10 +53,10 @@ func genCert(ca *tls.Certificate, names []string) (*tls.Certificate, error) {
 	}
 	var key_bytes []byte
 	key_bytes, err = x509.MarshalPKCS8PrivateKey(key)
-  if err != nil {
+	if err != nil {
 		return nil, err
 	}
-  dbUpdate([]byte(fmt.Sprintf("%s:key", names[0])), pem.EncodeToMemory(&pem.Block{
+	dbUpdate([]byte(fmt.Sprintf("%s:key", names[0])), pem.EncodeToMemory(&pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: key_bytes,
 	}))
@@ -64,7 +64,7 @@ func genCert(ca *tls.Certificate, names []string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-  dbUpdate([]byte(fmt.Sprintf("%s:cert", names[0])), pem.EncodeToMemory(&pem.Block{
+	dbUpdate([]byte(fmt.Sprintf("%s:cert", names[0])), pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: x,
 	}))

@@ -21,8 +21,8 @@ package main
 
 import (
 	"bytes"
-	"crypto/tls"
 	"crypto/sha256"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"github.com/dgraph-io/badger"
@@ -68,10 +68,10 @@ func init() {
 
 func dbUpdate(key, value []byte) {
 	err := db.Update(func(txn *badger.Txn) error {
-  e := badger.NewEntry(key,value)
-  err := txn.SetEntry(e)
-  return err
-})
+		e := badger.NewEntry(key, value)
+		err := txn.SetEntry(e)
+		return err
+	})
 	if err != nil {
 		log.Fatalf("Fatal: %v", err)
 	}
@@ -120,6 +120,7 @@ func getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 }
 
 var ca tls.Certificate
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	//files, err := ioutil.ReadDir(".")
@@ -359,7 +360,7 @@ func serve(conn net.Conn, sConfig *tls.Config) {
 	length, err := tlsConn.Read(data)
 	fmt.Printf("%d read\n", length)
 	fmt.Println(tlsConn.ConnectionState().ServerName)
-	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", tlsConn.ConnectionState().ServerName, conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort), &tls.Config{KeyLogWriter: KeyLogWriter{Session:[]byte(fmt.Sprintf("%d\x00", time.Now().UnixNano()))}})
+	outConn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", tlsConn.ConnectionState().ServerName, conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort), &tls.Config{KeyLogWriter: KeyLogWriter{Session: []byte(fmt.Sprintf("%d\x00", time.Now().UnixNano()))}})
 	if err != nil {
 		fmt.Println(err)
 		return
