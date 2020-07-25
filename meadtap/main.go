@@ -229,7 +229,7 @@ func main() {
 	http_listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 80}, ipv4.ProtocolNumber)
 
 	go serve_local(s)
-	go serve_http(http_listener)
+	go serve_direct(http_listener)
 	go serveCert()
 	udplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, dnsaddress, 53}, nil, ipv4.ProtocolNumber)
 	go func() error {
@@ -279,45 +279,45 @@ func serveCert() {
 	log.Fatal(http.ListenAndServe("127.0.0.1:9090", mux))
 }
 
-func serve_http(http_listener *gonet.Listener) {
+func serve_direct(direct_listener *gonet.Listener) {
 	for {
-		http_conn, http_err := http_listener.Accept()
-		if http_err != nil {
-			log.Printf("%+v", http_err)
+		direct_conn, direct_err := direct_listener.Accept()
+		if direct_err != nil {
+			log.Printf("%+v", direct_err)
 		} else {
-			go doServeHTTP(http_conn)
+			go doServeDirect(direct_conn)
 		}
 	}
 }
 
-func doServeHTTP(http_conn net.Conn) {
+func doServeDirect(direct_conn net.Conn) {
 	data := make([]byte, 4096)
 	var err error
 	var length int
-	defer http_conn.Close()
-	if length, err = http_conn.Read(data); err == nil {
+	defer direct_conn.Close()
+	if length, err = direct_conn.Read(data); err == nil {
 		err = db.View(func(txn *badger.Txn) error {
 			_, err := txn.Get(bytes.Split(data, []byte("\n"))[0])
 			return err
 		})
-		log.Printf("Read from http %v", length)
-		log.Printf("Connecting over http to %s", fmt.Sprintf("%s:%d", http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
-		connectAddress := http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress
-		connectPort := http_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort
+		log.Printf("Read from direct %v", length)
+		log.Printf("Connecting over direct to %s", fmt.Sprintf("%s:%d", direct_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress, direct_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort))
+		connectAddress := direct_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalAddress
+		connectPort := direct_conn.(*gonet.Conn).GetEndpoint().Info().(*tcp.EndpointInfo).ID.LocalPort
 		if strings.HasPrefix(connectAddress.String(), "10.") || strings.HasPrefix(connectAddress.String(), "192.168") || regexp.MustCompile("^172[.](1[6-9]|2[0-9]|3[01])[.]").MatchString(connectAddress.String()) {
 			log.Printf("Replacing %s with 127.0.0.1", connectAddress.String())
 			connectAddress = tcpip.Address(net.ParseIP("127.0.0.1").To4())
 			connectPort = 9090
 		}
-		http_out_conn, http_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", connectAddress, connectPort))
-		defer http_out_conn.Close()
-		if http_out_conn_err != nil {
-			log.Printf("%+v", http_out_conn_err)
+		direct_out_conn, direct_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", connectAddress, connectPort))
+		defer direct_out_conn.Close()
+		if direct_out_conn_err != nil {
+			log.Printf("%+v", direct_out_conn_err)
 		} else {
 			log.Printf("Connection made")
-			if _, initial_write_err := http_out_conn.Write(data[:length]); initial_write_err == nil {
-				go io.Copy(http_conn, http_out_conn)
-				io.Copy(http_out_conn, http_conn)
+			if _, initial_write_err := direct_out_conn.Write(data[:length]); initial_write_err == nil {
+				go io.Copy(direct_conn, direct_out_conn)
+				io.Copy(direct_out_conn, direct_conn)
 			} else {
 				log.Printf("%+v", initial_write_err)
 			}
