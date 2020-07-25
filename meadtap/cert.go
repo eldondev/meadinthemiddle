@@ -56,18 +56,22 @@ func genCert(ca *tls.Certificate, names []string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbUpdate([]byte(fmt.Sprintf("%s:key", names[0])), pem.EncodeToMemory(&pem.Block{
+	key_encode := pem.EncodeToMemory(&pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: key_bytes,
-	}))
+	})
+	dbUpdate([]byte(fmt.Sprintf("%s:key", names[0])), key_encode)
+	dbUpdate([]byte(fmt.Sprintf("%s:key:%d", names[0],time.Now().UnixNano())), key_encode)
 	x, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Leaf, key.Public(), ca.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
-	dbUpdate([]byte(fmt.Sprintf("%s:cert", names[0])), pem.EncodeToMemory(&pem.Block{
+	cert_encode := pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: x,
-	}))
+	})
+	dbUpdate([]byte(fmt.Sprintf("%s:cert", names[0])), cert_encode)
+	dbUpdate([]byte(fmt.Sprintf("%s:cert:%d", names[0],time.Now().UnixNano())), cert_encode)
 	cert := new(tls.Certificate)
 	cert.Certificate = append(cert.Certificate, x)
 	cert.PrivateKey = key

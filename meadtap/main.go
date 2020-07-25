@@ -22,6 +22,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/x509"
 	"crypto/tls"
 	"encoding/json"
 	"flag"
@@ -107,6 +108,10 @@ func getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			cert, err = tls.X509KeyPair(certificate, key)
 			if err != nil {
 				return err
+			}
+			x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
+			if err != nil || x509Cert.NotAfter.Before(time.Now()) {
+				return fmt.Errorf("Problem loading cert, current time:%+v expire time %+v", time.Now(), x509Cert.NotAfter)
 			}
 		}
 		return err
