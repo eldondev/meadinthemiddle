@@ -7,9 +7,22 @@ import "io"
 import "log"
 import "bufio"
 import "bytes"
+import "context"
+import "time"
 import "encoding/binary"
 import "github.com/google/netstack/tcpip/adapters/gonet"
 
+func init()  {
+	net.DefaultResolver = &net.Resolver{
+	PreferGo: true,
+	Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+		d := net.Dialer{
+			Timeout: time.Millisecond * time.Duration(10000),
+		}
+		return d.DialContext(ctx, "udp", "8.8.4.4:53")
+	},
+}
+}
 type RRecord struct {
 	RecordBuffer []byte
 	RRecordFooter
