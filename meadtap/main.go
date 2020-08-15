@@ -310,10 +310,10 @@ func doServeDirect(direct_conn net.Conn) {
 			connectPort = 9090
 		}
 		direct_out_conn, direct_out_conn_err := net.Dial("tcp", fmt.Sprintf("%s:%d", connectAddress, connectPort))
-		defer direct_out_conn.Close()
 		if direct_out_conn_err != nil {
 			log.Printf("%+v", direct_out_conn_err)
 		} else {
+		  defer direct_out_conn.Close()
 			log.Printf("Connection made")
 			if _, initial_write_err := direct_out_conn.Write(data[:length]); initial_write_err == nil {
 				go io.Copy(direct_conn, direct_out_conn)
