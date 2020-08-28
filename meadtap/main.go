@@ -22,8 +22,8 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
-	"crypto/x509"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -324,7 +324,7 @@ func doServeDirect(direct_conn net.Conn) {
 		if direct_out_conn_err != nil {
 			log.Printf("%+v", direct_out_conn_err)
 		} else {
-		  defer direct_out_conn.Close()
+			defer direct_out_conn.Close()
 			log.Printf("Connection made")
 			if _, initial_write_err := direct_out_conn.Write(data[:length]); initial_write_err == nil {
 				go io.Copy(direct_conn, direct_out_conn)
@@ -426,7 +426,7 @@ func get_record_files(serverName string) (inFile, outFile *os.File) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fileString := regexp.MustCompile("[^[:alnum:]]").ReplaceAllLiteralString(fmt.Sprintf("%s-%s-%d", serverName, time.Now().Format(time.RFC3339Nano), atomic.AddUint64(&stream_counter, 1)), "_")
+	fileString := fmt.Sprintf("convodir/%s", regexp.MustCompile("[^[:alnum:]]").ReplaceAllLiteralString(fmt.Sprintf("%s-%s-%d", serverName, time.Now().Format(time.RFC3339Nano), atomic.AddUint64(&stream_counter, 1)), "_"))
 	inFile, err = os.Create(fileString + "in")
 	if err != nil {
 		log.Fatal(err)
