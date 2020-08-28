@@ -45,6 +45,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -426,7 +427,7 @@ func get_record_files(serverName string) (inFile, outFile *os.File) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fileString := fmt.Sprintf("convodir/%s", regexp.MustCompile("[^[:alnum:]]").ReplaceAllLiteralString(fmt.Sprintf("%s-%s-%d", serverName, time.Now().Format(time.RFC3339Nano), atomic.AddUint64(&stream_counter, 1)), "_"))
+	fileString := path.Join("convodir", regexp.MustCompile("[^[:alnum:]]").ReplaceAllLiteralString(fmt.Sprintf("%s-%s-%d", serverName, time.Now().Format(time.RFC3339Nano), atomic.AddUint64(&stream_counter, 1)), "_"))
 	inFile, err = os.Create(fileString + "in")
 	if err != nil {
 		log.Fatal(err)
