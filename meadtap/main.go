@@ -225,6 +225,7 @@ func main() {
 		},
 	})
 
+	irc_listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 6697}, ipv4.ProtocolNumber)
 	listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 443}, ipv4.ProtocolNumber)
 	http_listener, err := gonet.NewListener(s, tcpip.FullAddress{0, "", 80}, ipv4.ProtocolNumber)
 
@@ -248,6 +249,16 @@ func main() {
 	if err != nil {
 		log.Fatal("new Listener failed: ", err)
 	}
+	go func() {
+		for {
+			list_conn, list_err := irc_listener.Accept()
+			if list_err != nil {
+				log.Printf("%+v", list_err)
+			} else {
+				go serve(list_conn, sConfig)
+			}
+		}
+	}()
 	for {
 		list_conn, list_err := listener.Accept()
 		if list_err != nil {
