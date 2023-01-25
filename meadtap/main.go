@@ -40,6 +40,7 @@ import (
 	"github.com/google/netstack/tcpip/transport/tcp"
 	"github.com/google/netstack/tcpip/transport/udp"
 	"io"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -234,22 +235,42 @@ func main() {
 	go serve_direct(http_listener)
 	go serveCert()
 	udplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, dnsaddress, 53}, nil, ipv4.ProtocolNumber)
+	if err != nil {
+		log.Fatal("dnsListener failed: ", err)
+	}
 	go func() error {
 		udpdata := make([]byte, 4096)
 
 		for {
 			readlen, udpaddr, udperr := udplistener.ReadFrom(udpdata)
 			if udperr != nil {
-				return udperr
+				log.Printf("DNS Error %+v", udperr)
+				continue
 			}
 			if readlen > 0 {
 				serveDNS(readlen, &udpaddr, udpdata, udplistener)
 			}
 		}
 	}()
+
+	ntplistener, err := gonet.DialUDP(s, &tcpip.FullAddress{0, dnsaddress, 123}, nil, ipv4.ProtocolNumber)
 	if err != nil {
-		log.Fatal("new Listener failed: ", err)
+		log.Fatal("ntp Listener failed: ", err)
 	}
+	go func() error {
+
+		for {
+			ntpdata := make([]byte, 4096)
+			readlen, ntpaddr, ntperr := ntplistener.ReadFrom(ntpdata)
+			if ntperr != nil {
+				log.Printf("DNS Error %+v", ntperr)
+				continue
+			}
+			if readlen > 0 {
+				go proxyNTP(readlen, &ntpaddr, &ntpdata, ntplistener)
+			}
+		}
+	}()
 	go func() {
 		for {
 			list_conn, list_err := irc_listener.Accept()
@@ -270,6 +291,25 @@ func main() {
 	}
 }
 
+func proxyNTP(readlen int, remoteaddr *net.Addr, data *[]byte, conn *gonet.PacketConn) {
+	log.Printf("ntp conn: %+v", conn)
+	//connectAddress := conn.GetEndpoint().Info().(*stack.TransportEndpointInfo).ID.LocalAddress
+	//connectPort := 123
+	if outconn, err := net.Dial("udp", "0.debian.pool.ntp.org:123"); err == nil {
+		defer outconn.Close()
+		if _, err = outconn.Write((*data)[:readlen]); err == nil {
+			go func() {
+				<- time.After(30 * time.Second)
+				outconn.Close()
+			}()
+			bytes, err := io.Copy(conn, outconn)
+			log.Printf("Ntp done: %n, %+v", bytes, err)
+		} else {
+			log.Printf("Ntp outconn write error: %+v", err)
+		}
+	}
+}
+
 func serveCert() {
 	log.Printf("Serving cert")
 	mux := http.NewServeMux()
@@ -286,6 +326,21 @@ func serveCert() {
 			return
 		}
 		fmt.Fprintf(w, string(json))
+	})
+
+	mux.HandleFunc("/regen", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Handling regen request")
+		serverName, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			fmt.Fprintf(w, err.Error())
+			return
+		}
+		_, err = genCert(&ca, []string{string(serverName)})
+		if err != nil {
+			fmt.Fprintf(w, err.Error())
+			return
+		}
+		fmt.Fprintf(w, string(serverName))
 	})
 
 	log.Fatal(http.ListenAndServe("127.0.0.1:9090", mux))
