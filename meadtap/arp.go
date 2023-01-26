@@ -26,10 +26,10 @@
 package main
 
 import (
-	"github.com/google/netstack/tcpip"
-	"github.com/google/netstack/tcpip/buffer"
-	"github.com/google/netstack/tcpip/header"
-	"github.com/google/netstack/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/prependable"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
 const (
@@ -85,7 +85,7 @@ func (e *endpoint) WritePacket(*stack.Route, *stack.GSO, stack.NetworkHeaderPara
 }
 
 // WritePackets implements stack.NetworkEndpoint.WritePackets.
-func (e *endpoint) WritePackets(*stack.Route, *stack.GSO, []stack.PacketDescriptor, buffer.VectorisedView, stack.NetworkHeaderParams, stack.PacketLooping) (int, *tcpip.Error) {
+func (e *endpoint) WritePackets(*stack.Route, *stack.GSO, []stack.PacketDescriptor, prependable.VectorisedView, stack.NetworkHeaderParams, stack.PacketLooping) (int, *tcpip.Error) {
 	return 0, tcpip.ErrNotSupported
 }
 
@@ -109,7 +109,7 @@ func (e *endpoint) HandlePacket(r *stack.Route, pkt tcpip.PacketBuffer) {
 		if e.linkAddrCache.CheckLocalAddress(e.nicID, header.IPv4ProtocolNumber, localAddr) == 0 {
 			return // we have no useful answer, ignore the request
 		}
-		hdr := buffer.NewPrependable(int(e.linkEP.MaxHeaderLength()) + header.ARPSize)
+		hdr := prependable.New(int(e.linkEP.MaxHeaderLength()) + header.ARPSize)
 		packet := header.ARP(hdr.Prepend(header.ARPSize))
 		packet.SetIPv4OverEthernet()
 		packet.SetOp(header.ARPReply)
@@ -137,7 +137,7 @@ func (p *protocol) Number() tcpip.NetworkProtocolNumber { return ProtocolNumber 
 func (p *protocol) MinimumPacketSize() int              { return header.ARPSize }
 func (p *protocol) DefaultPrefixLen() int               { return 0 }
 
-func (*protocol) ParseAddresses(v buffer.View) (src, dst tcpip.Address) {
+func (*protocol) ParseAddresses(v prependable.View) (src, dst tcpip.Address) {
 	h := header.ARP(v)
 	return tcpip.Address(h.ProtocolAddressSender()), ProtocolAddress
 }
@@ -165,7 +165,7 @@ func (*protocol) LinkAddressRequest(addr, localAddr tcpip.Address, linkEP stack.
 		RemoteLinkAddress: broadcastMAC,
 	}
 
-	hdr := buffer.NewPrependable(int(linkEP.MaxHeaderLength()) + header.ARPSize)
+	hdr := prependable.NewPrependable(int(linkEP.MaxHeaderLength()) + header.ARPSize)
 	h := header.ARP(hdr.Prepend(header.ARPSize))
 	h.SetIPv4OverEthernet()
 	h.SetOp(header.ARPRequest)

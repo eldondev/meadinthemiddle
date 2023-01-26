@@ -10,7 +10,7 @@ import "bytes"
 import "context"
 import "time"
 import "encoding/binary"
-import "github.com/google/netstack/tcpip/adapters/gonet"
+import "gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 
 func init()  {
 	net.DefaultResolver = &net.Resolver{
